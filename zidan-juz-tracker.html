@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Zidan's Quran Revision Tracker</title>
+  <style>
+    body{font-family:-apple-system,system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#f6f7fb;color:#111}
+    .wrap{max-width:900px;margin:0 auto;padding:16px}
+    h1{font-size:20px;margin:0}
+    .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+    .tiny{font-size:12px;color:#5b5f73}
+    .card{background:#fff;border-radius:16px;box-shadow:0 6px 18px rgba(0,0,0,.06);padding:14px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .input,select{width:100%;padding:11px 12px;border-radius:12px;border:1px solid #d7d9e2;background:#fff;font-size:14px}
+    .btn{border:0;border-radius:12px;padding:10px 12px;font-weight:800;background:#111;color:#fff;cursor:pointer}
+    .btn.secondary{background:#e9ebf2;color:#111}
+    .btn:disabled,.input:disabled,select:disabled{opacity:.55;cursor:not-allowed}
+    .grid{display:grid;gap:10px;margin-top:12px}
+    .juz{background:#fff;border:1px solid #eceef6;border-radius:16px;overflow:hidden}
+    .juzHead{width:100%;border:0;background:#fff;padding:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;text-align:left}
+    .juzTitle{font-weight:900;font-size:15px}
+    .arabic{font-family:Arial,"Traditional Arabic",sans-serif;direction:rtl;font-size:22px;font-weight:800}
+    .chev{font-size:18px;color:#555}
+    .quarters{display:none;padding:0 12px 12px}
+    .juz.open .quarters{display:grid;gap:10px}
+    .quarter{border:1px solid #eef0f7;border-radius:14px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .qLeft{min-width:0}
+    .qName{font-weight:900;font-size:15px}
+    .qMeta{font-size:12px;color:#5b5f73;margin-top:4px}
+    .qActions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    .badge{font-size:12px;padding:5px 9px;border-radius:999px;background:#f1f3f9;color:#2d2f3a;white-space:nowrap}
+    .badge.never{background:#fff4d6;color:#6b4d00}
+    .modalBack{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;padding:16px;z-index:100}
+    .modal{width:100%;max-width:520px}
+    .toast{position:fixed;left:16px;right:16px;bottom:16px;background:#111;color:#fff;padding:10px 12px;border-radius:14px;z-index:120;font-weight:800;font-size:13px;opacity:0;transform:translateY(6px);transition:opacity .18s ease,transform .18s ease;pointer-events:none}
+    .toast.show{opacity:1;transform:translateY(0)}
+    .busyOverlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:200;opacity:0;transition:opacity .2s ease}
+    .busyOverlay.show{display:flex;opacity:1}
+    .busyCard{background:#111;color:#fff;padding:18px 20px;border-radius:16px;box-shadow:0 12px 30px rgba(0,0,0,.35);display:flex;align-items:center;gap:12px;font-weight:900}
+    .spinner{width:18px;height:18px;border:3px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .offlineBanner{position:fixed;left:12px;right:12px;top:12px;z-index:150;background:#fff1f2;border:1px solid #fecdd3;color:#7f1d1d;border-radius:14px;padding:10px 12px;font-weight:900;display:none}
+    .offlineBanner.show{display:block}
+    @media(min-width:640px){.toast{left:auto;right:16px;max-width:420px}.offlineBanner{left:auto;right:12px;max-width:520px}}
+  </style>
+</head>
+<body>
+
+<div id="offlineBanner" class="offlineBanner">Offline. Changes cannot be saved until you are back online.</div>
+
+<div id="busyOverlay" class="busyOverlay">
+  <div class="busyCard">
+    <div class="spinner"></div>
+    <span id="busyText">Syncing…</span>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="topbar">
+    <div>
+      <h1>Zidan's Quran Revision Tracker</h1>
+      <div class="tiny">Tracking 30 Juz by quarters. Saved to Google Sheets.</div>
+    </div>
+    <button class="btn secondary" id="refreshBtn">Refresh</button>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <input id="search" class="input" placeholder="Search Juz number or Arabic name" />
+      <select id="filter">
+        <option value="all">Show: All</option>
+        <option value="never">Show: Never revised</option>
+        <option value="overdue">Show: Overdue</option>
+      </select>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <label class="tiny" style="flex:2 1 auto;">
+        Overdue if older than (days)
+        <input id="threshold" class="input" type="number" min="1" value="7" style="margin-top:6px;" />
+      </label>
+    </div>
+
+    <div id="summary" class="tiny" style="margin-top:10px;"></div>
+    <div id="netMsg" class="tiny" style="margin-top:6px;"></div>
+  </div>
+
+  <div id="list" class="grid"></div>
+</div>
+
+<div id="modalBack" class="modalBack">
+  <div class="modal">
+    <div class="card">
+      <h1 id="modalTitle" style="font-size:16px;margin-bottom:10px;">Set revised date</h1>
+      <div class="row">
+        <input id="dateInput" class="input" type="date" />
+        <button class="btn" id="saveDateBtn">Save</button>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn secondary" id="todayBtn">Set to Today</button>
+        <button class="btn secondary" id="clearBtn">Clear date</button>
+        <button class="btn secondary" id="cancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+  const API_URL = "https://script.google.com/macros/s/AKfycbwriu7EvbU1sKNRV7j9xqO5ueJN0rFUS3oSAcHJ55kNTABA4bSSaWB0YzAtFCFxKqEq/exec";
+  const API_KEY = "zidan-juz-tracker-2026-private-key";
+
+  const JUZ = [
+    [1,"الٓمٓ"],[2,"سَيَقُولُ"],[3,"تِلْكَ الرُّسُلُ"],[4,"لَنْ تَنَالُوا"],[5,"وَالْمُحْصَنَاتُ"],
+    [6,"لَا يُحِبُّ اللَّهُ"],[7,"وَإِذَا سَمِعُوا"],[8,"وَلَوْ أَنَّنَا"],[9,"قَالَ الْمَلَأُ"],[10,"وَاعْلَمُوا"],
+    [11,"يَعْتَذِرُونَ"],[12,"وَمَا مِنْ دَابَّةٍ"],[13,"وَمَا أُبَرِّئُ"],[14,"رُبَمَا"],[15,"سُبْحَانَ الَّذِي"],
+    [16,"قَالَ أَلَمْ"],[17,"اقْتَرَبَ لِلنَّاسِ"],[18,"قَدْ أَفْلَحَ"],[19,"وَقَالَ الَّذِينَ"],[20,"أَمَّنْ خَلَقَ"],
+    [21,"اتْلُ مَا أُوحِيَ"],[22,"وَمَنْ يَقْنُتْ"],[23,"وَمَا لِيَ"],[24,"فَمَنْ أَظْلَمُ"],[25,"إِلَيْهِ يُرَدُّ"],
+    [26,"حم"],[27,"قَالَ فَمَا خَطْبُكُمْ"],[28,"قَدْ سَمِعَ اللَّهُ"],[29,"تَبَارَكَ الَّذِي"],[30,"عَمَّ"]
+  ];
+
+const QUARTERS = ["Q1","Q2","Q3","Q4"];
+
+function quarterLabel(q){
+  if (q === "Q1") return "1/4";
+  if (q === "Q2") return "2/4";
+  if (q === "Q3") return "3/4";
+  if (q === "Q4") return "4/4";
+  return q;
+}
+
+  const listEl = document.getElementById("list");
+  const searchEl = document.getElementById("search");
+  const filterEl = document.getElementById("filter");
+  const thresholdEl = document.getElementById("threshold");
+  const summaryEl = document.getElementById("summary");
+  const netMsgEl = document.getElementById("netMsg");
+  const refreshBtn = document.getElementById("refreshBtn");
+
+  const modalBack = document.getElementById("modalBack");
+  const modalTitle = document.getElementById("modalTitle");
+  const dateInput = document.getElementById("dateInput");
+  const saveDateBtn = document.getElementById("saveDateBtn");
+  const todayBtn = document.getElementById("todayBtn");
+  const clearBtn = document.getElementById("clearBtn");
+  const cancelBtn = document.getElementById("cancelBtn");
+
+  const toastEl = document.getElementById("toast");
+  const busyOverlay = document.getElementById("busyOverlay");
+  const busyText = document.getElementById("busyText");
+  const offlineBanner = document.getElementById("offlineBanner");
+
+  let data = {};
+  let openJuz = null;
+  let active = null;
+  let busy = false;
+
+  function baseData(){
+    const obj = {};
+    for (const [num,name] of JUZ) {
+      obj[num] = { name, quarters: {} };
+      for (const q of QUARTERS) obj[num].quarters[q] = "";
+    }
+    return obj;
+  }
+
+  function buildUrl(action){
+    return `${API_URL}?action=${encodeURIComponent(action)}&key=${encodeURIComponent(API_KEY)}`;
+  }
+
+  function isoToday(){
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+
+  function normalizeToISO(value){
+    if (!value) return "";
+    const s = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return "";
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+
+  function formatDate(iso){
+    if (!iso) return "";
+    const d = new Date(`${iso}T12:00:00`);
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+  }
+
+  function daysSince(iso){
+    if (!iso) return null;
+    const d = new Date(`${iso}T00:00:00`);
+    return Math.max(0, Math.floor((new Date() - d) / 86400000));
+  }
+
+  function badgeText(iso){
+    if (!iso) return "Never";
+    const d = daysSince(iso);
+    if (d === 0) return "Today";
+    if (d === 1) return "1 day ago";
+    return `${d} days ago`;
+  }
+
+  function showToast(msg){
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(()=>toastEl.classList.remove("show"),1600);
+  }
+
+  function setBusy(v,msg){
+    busy = v;
+    busyText.textContent = msg || "Working…";
+    if (v) busyOverlay.classList.add("show");
+    else busyOverlay.classList.remove("show");
+
+    refreshBtn.disabled = busy;
+    searchEl.disabled = busy;
+    filterEl.disabled = busy;
+    thresholdEl.disabled = busy;
+    dateInput.disabled = busy;
+    saveDateBtn.disabled = busy;
+    todayBtn.disabled = busy;
+    clearBtn.disabled = busy;
+    cancelBtn.disabled = busy;
+
+    render();
+  }
+
+  function isOnline(){return navigator.onLine !== false}
+  function setOffline(show){offlineBanner.classList.toggle("show",show)}
+  function setNetMsg(msg){netMsgEl.textContent = msg || ""}
+
+  async function apiList(){
+    const res = await fetch(buildUrl("list"));
+    const j = await res.json();
+    if (!j.ok) throw new Error(j.error || "Load failed");
+    return j.items || [];
+  }
+
+  async function apiSet(juz,quarter,date){
+    const url = buildUrl("set") +
+      `&juz_number=${encodeURIComponent(juz)}` +
+      `&quarter=${encodeURIComponent(quarter)}` +
+      `&last_revised=${encodeURIComponent(date || "")}`;
+
+    const res = await fetch(url);
+    const j = await res.json();
+    if (!j.ok) throw new Error(j.error || "Save failed");
+  }
+
+  async function load(){
+    if (!isOnline()) {
+      setOffline(true);
+      setNetMsg("Offline. Connect to internet to sync.");
+      return;
+    }
+
+    setBusy(true,"Syncing…");
+    setNetMsg("");
+
+    try {
+      const items = await apiList();
+      data = baseData();
+
+      for (const item of items) {
+        const j = Number(item.juz_number);
+        const q = String(item.quarter);
+        if (data[j] && data[j].quarters[q] !== undefined) {
+          data[j].name = item.juz_name_arabic || data[j].name;
+          data[j].quarters[q] = normalizeToISO(item.last_revised);
+        }
+      }
+
+      setBusy(false);
+      showToast("Synced");
+      render();
+    } catch(e) {
+      setBusy(false);
+      setNetMsg("Could not sync. Check internet and try Refresh.");
+    }
+  }
+
+  async function saveQuarter(juz,quarter,date){
+    if (!isOnline()) {
+      setOffline(true);
+      setNetMsg("Offline. Cannot save changes.");
+      showToast("Offline");
+      return;
+    }
+
+    const old = data[juz].quarters[quarter];
+    data[juz].quarters[quarter] = date || "";
+    render();
+
+    setBusy(true,"Saving…");
+
+    try {
+      await apiSet(juz,quarter,date);
+      setBusy(false);
+      showToast("Saved");
+      setNetMsg("");
+    } catch(e) {
+      data[juz].quarters[quarter] = old;
+      setBusy(false);
+      showToast("Save failed");
+      setNetMsg("Save failed. Try Refresh.");
+    }
+  }
+
+  function openDateModal(juz,quarter){
+  if (busy) return;
+  active = {juz,quarter};
+  modalTitle.textContent = `Set revised date — Juz ${juz}, ${quarterLabel(quarter)}`;
+  dateInput.value = data[juz].quarters[quarter] || "";
+
+  // Prevent selecting a future date
+  dateInput.max = isoToday();
+  dateInput.min = "";
+
+  modalBack.style.display = "flex";
+}
+
+  function closeModal(){
+    modalBack.style.display = "none";
+    active = null;
+  }
+
+  function filteredJuz(){
+    const q = searchEl.value.trim().toLowerCase();
+    const filter = filterEl.value;
+    const threshold = parseInt(thresholdEl.value || "7",10);
+
+    return JUZ.filter(([num,name]) => {
+      const match = !q || String(num).includes(q) || name.toLowerCase().includes(q);
+      if (!match) return false;
+
+      if (filter === "all") return true;
+
+      const dates = QUARTERS.map(x => data[num]?.quarters[x] || "");
+
+      if (filter === "never") return dates.some(x => !x);
+      if (filter === "overdue") return dates.some(x => !x || daysSince(x) > threshold);
+
+      return true;
+    });
+  }
+
+  function render(){
+    const rows = filteredJuz();
+    listEl.innerHTML = "";
+
+    let totalNever = 0;
+    let totalOverdue = 0;
+    const threshold = parseInt(thresholdEl.value || "7",10);
+
+    for (const [num] of JUZ) {
+      for (const q of QUARTERS) {
+        const d = data[num]?.quarters[q] || "";
+        if (!d) totalNever++;
+        if (!d || daysSince(d) > threshold) totalOverdue++;
+      }
+    }
+
+    summaryEl.textContent = `Showing ${rows.length} Juz. Never revised quarters: ${totalNever}. Overdue quarters: ${totalOverdue}.`;
+
+    for (const [num,name] of rows) {
+      const div = document.createElement("div");
+      div.className = "juz" + (openJuz === num ? " open" : "");
+
+      const head = document.createElement("button");
+      head.className = "juzHead";
+      head.disabled = busy;
+      head.innerHTML = `
+        <div>
+          <div class="juzTitle">Juz ${num}</div>
+          <div class="arabic">${name}</div>
+        </div>
+        <div class="chev">${openJuz === num ? "−" : "+"}</div>
+      `;
+      head.onclick = () => {
+        if (busy) return;
+        openJuz = openJuz === num ? null : num;
+        render();
+      };
+
+      const quarters = document.createElement("div");
+      quarters.className = "quarters";
+
+      for (const q of QUARTERS) {
+        const date = data[num]?.quarters[q] || "";
+
+        const qDiv = document.createElement("div");
+        qDiv.className = "quarter";
+
+        qDiv.innerHTML = `
+          <div class="qLeft">
+<div class="qName">${quarterLabel(q)}</div>
+            <div class="qMeta">${date ? `Last revised: <b>${formatDate(date)}</b>` : `Last revised: <b>Never</b>`}</div>
+          </div>
+        `;
+
+        const actions = document.createElement("div");
+        actions.className = "qActions";
+
+        const badge = document.createElement("span");
+        badge.className = "badge" + (!date ? " never" : "");
+        badge.textContent = badgeText(date);
+
+        const revised = document.createElement("button");
+        revised.className = "btn";
+        revised.textContent = "Revised";
+        revised.disabled = busy;
+        revised.onclick = () => saveQuarter(num,q,isoToday());
+
+        const setDate = document.createElement("button");
+        setDate.className = "btn secondary";
+        setDate.textContent = "Set date";
+        setDate.disabled = busy;
+        setDate.onclick = () => openDateModal(num,q);
+
+        actions.appendChild(badge);
+        actions.appendChild(revised);
+        actions.appendChild(setDate);
+
+        qDiv.appendChild(actions);
+        quarters.appendChild(qDiv);
+      }
+
+      div.appendChild(head);
+      div.appendChild(quarters);
+      listEl.appendChild(div);
+    }
+  }
+
+  saveDateBtn.onclick = () => {
+    if (!active || busy) return;
+    const {juz,quarter} = active;
+    const date = dateInput.value || "";
+    closeModal();
+    saveQuarter(juz,quarter,date);
+  };
+
+  todayBtn.onclick = () => { if (!busy) dateInput.value = isoToday(); };
+  clearBtn.onclick = () => { if (!busy) dateInput.value = ""; };
+  cancelBtn.onclick = () => { if (!busy) closeModal(); };
+  modalBack.onclick = e => { if (e.target === modalBack && !busy) closeModal(); };
+
+  refreshBtn.onclick = load;
+  searchEl.oninput = render;
+  filterEl.onchange = render;
+  thresholdEl.oninput = render;
+
+  window.addEventListener("offline",()=>{setOffline(true);setNetMsg("Offline. Changes cannot be saved.");});
+  window.addEventListener("online",()=>{setOffline(false);setNetMsg("");showToast("Back online");});
+
+  data = baseData();
+  setOffline(!isOnline());
+  render();
+  load();
+</script>
+</body>
+</html>
